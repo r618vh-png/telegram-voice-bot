@@ -321,12 +321,16 @@ bot.on("message", async (msg) => {
         const result = upsertBestScore(leaderboard, msg.from || {}, score);
         await writeRunnerLeaderboard(result.leaderboard);
 
+        const updatedRunnerUrl = getRunnerUrlWithTopAndPlayer(result.leaderboard, msg.from || {});
+        const updatedRunnerMarkup = updatedRunnerUrl ? getRunnerButtonMarkupByUrl(updatedRunnerUrl) : null;
+
         const recordLine = result.isNewRecord
           ? `Новый рекорд Runner: ${result.bestScore}.`
           : `Твой лучший рекорд Runner уже выше: ${result.bestScore}.`;
         await bot.sendMessage(
           chatId,
-          `Runner результат принят: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`
+          `Runner результат принят: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\nОткрыть Runner с обновлённым топом:`,
+          updatedRunnerMarkup ? { reply_markup: updatedRunnerMarkup } : undefined
         );
         return;
       }
