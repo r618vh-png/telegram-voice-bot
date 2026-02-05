@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Runner</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Runner</h1>
+      <div class="bar">
+        <span>Счёт: <strong data-score>0</strong></span>
+        <span>Статус: <strong data-status>Игра</strong></span>
+      </div>
+
+      <canvas data-canvas aria-label="Runner game canvas"></canvas>
+      <section class="result" data-result hidden>
+        <p><strong data-result-player></strong></p>
+        <p>Очки: <strong data-result-score>0</strong></p>
+        <p class="result-title">Топ-10 игроков</p>
+        <ol class="result-top" data-result-top></ol>
+      </section>
+
+      <div class="controls">
+        <button type="button" data-jump>Прыжок</button>
+        <button type="button" data-restart>Рестарт</button>
+      </div>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

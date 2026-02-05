@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Snake</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1 data-title>Snake</h1>
+      <div class="bar">
+        <span>Счёт: <strong data-score>0</strong></span>
+        <span>Статус: <strong data-status>Игра</strong></span>
+      </div>
+
+      <section class="board" data-board aria-label="Snake board"></section>
+      <section class="game-over" data-game-over hidden>
+        <h2>Игра окончена</h2>
+        <p>Твой счёт: <strong data-final-score>0</strong></p>
+        <p><strong data-you-rank></strong></p>
+        <p class="top-title">Топ игроков:</p>
+        <ol class="top-list" data-top-list></ol>
+        <button type="button" data-play-again>Еще раз</button>
+      </section>
+
+      <div class="buttons">
+        <button type="button" data-pause>Пауза</button>
+        <button type="button" data-restart>Рестарт</button>
+      </div>
+
+      <div class="controls" data-controls>
+        <button type="button" data-direction="UP">↑</button>
+        <div class="controls-row">
+          <button type="button" data-direction="LEFT">←</button>
+          <button type="button" data-direction="DOWN">↓</button>
+          <button type="button" data-direction="RIGHT">→</button>
+        </div>
+      </div>
+
+      <p class="hint" data-submit-status></p>
+    </main>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

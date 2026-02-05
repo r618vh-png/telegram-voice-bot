@@ -1,0 +1,21 @@
+{
+  "name": "telegram-voice-bot",
+  "version": "1.0.0",
+  "description": "Telegram voice bot with STT + LLM + TTS",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "snake": "node snake/server.js",
+    "runner": "node runner/server.js",
+    "test": "node --test snake/*.test.js runner/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@google/genai": "^1.31.0",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
