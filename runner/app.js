@@ -63,6 +63,8 @@ const initialTop = getTopFromQuery();
 const playerId = getPlayerId();
 const playerBest = getPlayerBestFromQuery();
 let hasSubmittedRunnerScore = false;
+let bestOverride = null;
+let topOverride = null;
 
 if (telegramWebApp) {
   telegramWebApp.ready();
@@ -272,15 +274,20 @@ function draw() {
     const bestFromTop = findBestFromTop(initialTop, playerId, playerName, state.score);
     const serverBest = Number.isFinite(playerBest) ? playerBest : bestFromTop;
     const bestOverall = Math.max(serverBest || 0, bestFromTop || 0);
+    const effectiveBest =
+      Number.isFinite(bestOverride) && Number(bestOverride) > bestOverall ? Number(bestOverride) : bestOverall;
     ctx.font = "600 20px 'Trebuchet MS', sans-serif";
     ctx.fillText(`Игрок: ${playerName}`, state.width / 2, panelY + 86);
     ctx.fillText(`Текущий: ${state.score}`, state.width / 2, panelY + 118);
-    ctx.fillText(`Лучший (сервер): ${bestOverall}`, state.width / 2, panelY + 148);
+    ctx.fillText(`Лучший (сервер): ${effectiveBest}`, state.width / 2, panelY + 148);
     ctx.font = "700 18px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#222";
     ctx.fillText("Топ-10 игроков", state.width / 2, panelY + 178);
 
-    const liveTop = initialTop;
+    const liveTop =
+      Array.isArray(topOverride) && topOverride.length > 0
+        ? topOverride
+        : mergeCurrentPlayerIntoTop(initialTop, playerName, effectiveBest, playerId);
     ctx.font = "500 11px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#333";
     ctx.textAlign = "left";
@@ -365,6 +372,9 @@ function submitRunnerScore() {
   const payload = { type: "runner_score", score: state.score, sentAt: Date.now() };
   telegramWebApp.sendData(JSON.stringify(payload));
   hasSubmittedRunnerScore = true;
+  const nextBest = Math.max(Number(bestOverride) || 0, state.score);
+  bestOverride = nextBest;
+  topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
 }
 
 function updateSendButton() {
@@ -414,6 +424,20 @@ function getPlayerBestFromQuery() {
   if (!raw) return null;
   const score = Number(raw);
   return Number.isFinite(score) ? score : null;
+}
+
+function mergeCurrentPlayerIntoTop(top, name, score, id) {
+  const list = Array.isArray(top) ? top.map((item) => ({ ...item })) : [];
+  const idx = id ? list.findIndex((item) => item.userId === id) : list.findIndex((item) => item.name === name);
+  if (idx >= 0) {
+    list[idx].score = Math.max(list[idx].score, score);
+    list[idx].name = list[idx].name || name;
+  } else if (Number.isFinite(score) && score > 0) {
+    list.push({ rank: 999, name, score, userId: id || 0 });
+  }
+  return list
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 10);
 }
 
 function findBestFromTop(top, id, name, fallbackScore) {
