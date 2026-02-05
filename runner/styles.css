@@ -60,6 +60,7 @@ canvas {
   background: #fff;
   text-align: center;
   padding: 8px 10px;
+  display: none;
 }
 
 .result p {
@@ -78,9 +79,6 @@ canvas {
   font-size: 14px;
 }
 
-.result-toggle {
-  margin-top: 6px;
-}
 
 button {
   border: 1px solid var(--border);
