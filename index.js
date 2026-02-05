@@ -129,8 +129,14 @@ function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
     name: entry.displayName,
     score: entry.bestScore
   }));
+  const playerId = Number(user?.id);
+  const playerEntry = Array.isArray(leaderboard?.entries)
+    ? leaderboard.entries.find((entry) => entry.userId === playerId)
+    : null;
+  const playerBest = playerEntry ? Number(playerEntry.bestScore) : null;
   const joiner = url.includes("?") ? "&" : "?";
-  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}&ts=${Date.now()}`;
+  const bestParam = Number.isFinite(playerBest) ? `&best=${playerBest}` : "";
+  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}&ts=${Date.now()}`;
 }
 
 function getGamesChoiceKeyboard() {

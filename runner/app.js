@@ -61,8 +61,8 @@ let runAnimIndex = 0;
 const playerName = getPlayerName();
 const initialTop = getTopFromQuery();
 const playerId = getPlayerId();
+const playerBest = getPlayerBestFromQuery();
 let hasSubmittedRunnerScore = false;
-const localBestKey = playerId ? `runner-best-${playerId}` : `runner-best-${playerName}`;
 
 if (telegramWebApp) {
   telegramWebApp.ready();
@@ -269,18 +269,18 @@ function draw() {
     ctx.font = "700 30px 'Trebuchet MS', sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("Статистика", state.width / 2, panelY + 42);
-    const storedBest = getStoredBest();
     const bestFromTop = findBestFromTop(initialTop, playerId, playerName, state.score);
-    const bestOverall = Math.max(bestFromTop, storedBest, state.score);
+    const serverBest = Number.isFinite(playerBest) ? playerBest : bestFromTop;
+    const bestOverall = Math.max(serverBest || 0, bestFromTop || 0);
     ctx.font = "600 20px 'Trebuchet MS', sans-serif";
     ctx.fillText(`Игрок: ${playerName}`, state.width / 2, panelY + 86);
     ctx.fillText(`Текущий: ${state.score}`, state.width / 2, panelY + 118);
-    ctx.fillText(`Лучший: ${bestOverall}`, state.width / 2, panelY + 148);
+    ctx.fillText(`Лучший (сервер): ${bestOverall}`, state.width / 2, panelY + 148);
     ctx.font = "700 18px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#222";
     ctx.fillText("Топ-10 игроков", state.width / 2, panelY + 178);
 
-    const liveTop = mergeCurrentPlayerIntoTop(initialTop, playerName, bestOverall, playerId);
+    const liveTop = initialTop;
     ctx.font = "500 12px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#333";
     ctx.textAlign = "left";
@@ -306,7 +306,6 @@ function draw() {
     ctx.font = "500 14px 'Trebuchet MS', sans-serif";
     ctx.fillText("Нажми Отправить результат", state.width / 2, panelY + panelH - 8);
     updateSendButton();
-    storeBest(bestOverall);
   }
 }
 
@@ -383,26 +382,6 @@ function updateSendButton() {
   sendBtn.textContent = hasSubmittedRunnerScore ? "Результат отправлен" : "Отправить результат";
 }
 
-function getStoredBest() {
-  try {
-    const raw = localStorage.getItem(localBestKey);
-    const val = Number(raw);
-    return Number.isFinite(val) ? val : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function storeBest(score) {
-  try {
-    const current = getStoredBest();
-    const next = Math.max(current, score);
-    localStorage.setItem(localBestKey, String(next));
-  } catch {
-    // ignore storage failures
-  }
-}
-
 function getTopFromQuery() {
   const raw = params.get("top");
   if (!raw) return [];
@@ -430,6 +409,13 @@ function getPlayerId() {
   return Number.isFinite(id) ? id : null;
 }
 
+function getPlayerBestFromQuery() {
+  const raw = params.get("best");
+  if (!raw) return null;
+  const score = Number(raw);
+  return Number.isFinite(score) ? score : null;
+}
+
 function findBestFromTop(top, id, name, fallbackScore) {
   if (!Array.isArray(top) || top.length === 0) return fallbackScore;
   const byId = id ? top.find((row) => row.userId === id) : null;
@@ -437,20 +423,6 @@ function findBestFromTop(top, id, name, fallbackScore) {
   const byName = top.find((row) => row.name === name);
   if (byName) return Math.max(byName.score, fallbackScore);
   return fallbackScore;
-}
-
-function mergeCurrentPlayerIntoTop(top, name, score, id) {
-  const list = top.map((item) => ({ ...item }));
-  const idx = id ? list.findIndex((item) => item.userId === id) : list.findIndex((item) => item.name === name);
-  if (idx >= 0) {
-    list[idx].score = Math.max(list[idx].score, score);
-    list[idx].name = list[idx].name || name;
-  } else {
-    list.push({ rank: 999, name, score, userId: id || 0 });
-  }
-  return list
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .slice(0, 10);
 }
 
 document.addEventListener("keydown", (event) => {
