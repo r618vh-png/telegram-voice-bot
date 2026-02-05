@@ -78,6 +78,10 @@ canvas {
   font-size: 14px;
 }
 
+.result-toggle {
+  margin-top: 6px;
+}
+
 button {
   border: 1px solid var(--border);
   border-radius: 8px;

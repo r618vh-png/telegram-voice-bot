@@ -8,6 +8,9 @@ const jumpBtn = document.querySelector("[data-jump]");
 const resultEl = document.querySelector("[data-result]");
 const resultPlayerEl = document.querySelector("[data-result-player]");
 const resultScoreEl = document.querySelector("[data-result-score]");
+const resultBestEl = document.querySelector("[data-result-best]");
+const resultToggleBtn = document.querySelector("[data-result-toggle]");
+const resultTitleEl = document.querySelector("[data-result-title]");
 const resultTopEl = document.querySelector("[data-result-top]");
 const telegramWebApp = window.Telegram?.WebApp;
 
@@ -61,6 +64,7 @@ const playerName = getPlayerName();
 const initialTop = getTopFromQuery();
 const playerId = getPlayerId();
 let hasSubmittedRunnerScore = false;
+let isTopVisible = false;
 const localBestKey = playerId ? `runner-best-${playerId}` : `runner-best-${playerName}`;
 
 if (telegramWebApp) {
@@ -255,7 +259,7 @@ function draw() {
     ctx.fillRect(0, 0, state.width, state.height);
 
     const panelW = 290;
-    const panelH = 360;
+    const panelH = 240;
     const panelX = Math.round((state.width - panelW) / 2);
     const panelY = Math.round((state.height - panelH) / 2 - 6);
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
@@ -275,33 +279,12 @@ function draw() {
     ctx.fillText(`Игрок: ${playerName}`, state.width / 2, panelY + 86);
     ctx.fillText(`Текущий: ${state.score}`, state.width / 2, panelY + 118);
     ctx.fillText(`Лучший: ${bestOverall}`, state.width / 2, panelY + 148);
-    ctx.font = "700 18px 'Trebuchet MS', sans-serif";
-    ctx.fillStyle = "#222";
-    ctx.fillText("Топ-10 игроков", state.width / 2, panelY + 178);
-
-    const liveTop = mergeCurrentPlayerIntoTop(initialTop, playerName, bestOverall, playerId);
-    ctx.font = "500 12px 'Trebuchet MS', sans-serif";
-    ctx.fillStyle = "#333";
-    ctx.textAlign = "left";
-    const listX = panelX + 18;
-    const listStartY = panelY + 200;
-    if (liveTop.length === 0) {
-      ctx.fillText("Топ пока пуст", listX, listStartY);
-    } else {
-      const maxRows = 10;
-      const rowHeight = 12;
-      for (let i = 0; i < Math.min(maxRows, liveTop.length); i += 1) {
-        const row = liveTop[i];
-        const y = listStartY + i * rowHeight;
-        const line = `${i + 1}. ${row.name} — ${row.score}`;
-        ctx.fillText(line, listX, y);
-      }
-    }
-
     ctx.textAlign = "center";
     ctx.font = "500 16px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#555";
-    ctx.fillText("Нажми Рестарт", state.width / 2, panelY + panelH - 10);
+    ctx.fillText("Нажми Рестарт", state.width / 2, panelY + panelH - 26);
+    ctx.font = "500 14px 'Trebuchet MS', sans-serif";
+    ctx.fillText("Нажми Топ 10 ниже", state.width / 2, panelY + panelH - 8);
     submitRunnerScore();
     storeBest(bestOverall);
   }
@@ -345,11 +328,46 @@ function doJump() {
 function doRestart() {
   state = restartRunner(state);
   hasSubmittedRunnerScore = false;
+  isTopVisible = false;
 }
 
 function renderResultPanel() {
-  if (!resultEl || !resultPlayerEl || !resultScoreEl || !resultTopEl) return;
-  resultEl.hidden = true;
+  if (!resultEl || !resultPlayerEl || !resultScoreEl || !resultTopEl || !resultBestEl || !resultToggleBtn || !resultTitleEl)
+    return;
+
+  if (!state.isGameOver) {
+    resultEl.hidden = true;
+    resultTopEl.hidden = true;
+    resultTitleEl.hidden = true;
+    return;
+  }
+
+  const storedBest = getStoredBest();
+  const bestFromTop = findBestFromTop(initialTop, playerId, playerName, state.score);
+  const bestOverall = Math.max(bestFromTop, storedBest, state.score);
+  const liveTop = mergeCurrentPlayerIntoTop(initialTop, playerName, bestOverall, playerId);
+
+  resultEl.hidden = false;
+  resultPlayerEl.textContent = `Игрок: ${playerName}`;
+  resultScoreEl.textContent = String(state.score);
+  resultBestEl.textContent = `Лучший: ${bestOverall}`;
+
+  resultTopEl.innerHTML = "";
+  if (liveTop.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "Топ пока пуст";
+    resultTopEl.appendChild(li);
+  } else {
+    for (const row of liveTop.slice(0, 10)) {
+      const li = document.createElement("li");
+      li.textContent = `${row.name} — ${row.score}`;
+      resultTopEl.appendChild(li);
+    }
+  }
+
+  resultTopEl.hidden = !isTopVisible;
+  resultTitleEl.hidden = !isTopVisible;
+  resultToggleBtn.textContent = isTopVisible ? "Скрыть топ 10" : "Топ 10";
 }
 
 function submitRunnerScore() {
@@ -446,6 +464,12 @@ canvas.addEventListener("pointerdown", () => {
 
 jumpBtn.addEventListener("click", doJump);
 restartBtn.addEventListener("click", doRestart);
+if (resultToggleBtn) {
+  resultToggleBtn.addEventListener("click", () => {
+    isTopVisible = !isTopVisible;
+    renderResultPanel();
+  });
+}
 
 draw();
 requestAnimationFrame(tick);
