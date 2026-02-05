@@ -4,12 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import TelegramBot from "node-telegram-bot-api";
 import { GoogleGenAI } from "@google/genai";
-import {
-  createEmptyLeaderboard,
-  getTopEntries,
-  normalizeScore,
-  upsertBestScore
-} from "./snake/leaderboard.js";
+import { createEmptyLeaderboard, getTopEntries, normalizeScore, upsertBestScore } from "./snake/leaderboard.js";
 
 dotenv.config({ override: true });
 
@@ -21,7 +16,6 @@ const {
   GEMINI_TTS_VOICE = "Kore",
   ECONOMY_MODE = "true",
   ECONOMY_MAX_ANSWER_CHARS = "180",
-  SNAKE_WEBAPP_URL = "",
   RUNNER_WEBAPP_URL = ""
 } = process.env;
 
@@ -34,11 +28,9 @@ const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const tmpDir = path.resolve("tmp");
 const dataDir = path.resolve("data");
-const leaderboardPath = path.join(dataDir, "snake-leaderboard.json");
 const runnerLeaderboardPath = path.join(dataDir, "runner-leaderboard.json");
 const economyMode = ECONOMY_MODE !== "false";
 const maxAnswerChars = Number(ECONOMY_MAX_ANSWER_CHARS) > 0 ? Number(ECONOMY_MAX_ANSWER_CHARS) : 180;
-const snakeWebAppUrl = String(SNAKE_WEBAPP_URL || "").trim();
 const runnerWebAppUrl = String(RUNNER_WEBAPP_URL || "").trim();
 
 await fsp.mkdir(tmpDir, { recursive: true });
@@ -98,45 +90,6 @@ function trimForEconomy(text) {
   return `${clean.slice(0, maxAnswerChars - 1)}...`;
 }
 
-function getSnakeUrlWithTop(leaderboard) {
-  const top = getTopEntries(leaderboard, 10).map((entry, idx) => ({
-    rank: idx + 1,
-    userId: entry.userId,
-    name: entry.displayName,
-    score: entry.bestScore
-  }));
-  const encoded = encodeURIComponent(JSON.stringify(top));
-  const joiner = snakeWebAppUrl.includes("?") ? "&" : "?";
-  return `${snakeWebAppUrl}${joiner}top=${encoded}`;
-}
-
-function getSnakeUrlWithTopAndUser(leaderboard, userId) {
-  const topUrl = getSnakeUrlWithTop(leaderboard);
-  const entries = getTopEntries(leaderboard, 10_000);
-  const rank = entries.findIndex((entry) => entry.userId === Number(userId)) + 1;
-  if (rank <= 0) return topUrl;
-  const me = entries[rank - 1];
-  const payload = encodeURIComponent(JSON.stringify({ rank, score: me.bestScore }));
-  const joiner = topUrl.includes("?") ? "&" : "?";
-  return `${topUrl}${joiner}you=${payload}`;
-}
-
-function getSnakeButtonMarkupByUrl(url) {
-  if (!url) return null;
-  return {
-    keyboard: [
-      [
-        {
-          text: "Играть в Snake",
-          web_app: { url }
-        }
-      ]
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: true
-  };
-}
-
 function getRunnerButtonMarkupByUrl(url) {
   if (!url) return null;
   return {
@@ -182,39 +135,9 @@ function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
 
 function getGamesChoiceKeyboard() {
   return {
-    keyboard: [[{ text: "Snake" }, { text: "Runner" }]],
+    keyboard: [[{ text: "Runner" }]],
     resize_keyboard: true
   };
-}
-
-async function readLeaderboard() {
-  try {
-    const raw = await fsp.readFile(leaderboardPath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.entries)) return createEmptyLeaderboard();
-    return {
-      version: 1,
-      updatedAt: String(parsed.updatedAt || new Date(0).toISOString()),
-      entries: parsed.entries
-    };
-  } catch (error) {
-    if (error?.code === "ENOENT") return createEmptyLeaderboard();
-    throw error;
-  }
-}
-
-async function writeLeaderboard(leaderboard) {
-  await fsp.writeFile(leaderboardPath, JSON.stringify(leaderboard, null, 2), "utf8");
-}
-
-function renderLeaderboardText(leaderboard) {
-  const top = getTopEntries(leaderboard, 10);
-  if (top.length === 0) {
-    return "Таблица рекордов пока пустая.\nСыграй в /snake.";
-  }
-
-  const lines = top.map((entry, idx) => `${idx + 1}. ${entry.displayName} (id:${entry.userId}) — ${entry.bestScore}`);
-  return `Snake: топ-10\n${lines.join("\n")}`;
 }
 
 async function readRunnerLeaderboard() {
@@ -317,44 +240,9 @@ async function answerTextOnly(userText) {
 }
 
 bot.onText(/\/start/, async (msg) => {
-  const text = "Выбери игру кнопками ниже или командами: /snake, /runner, /top, /toprunner, /toprunner100";
+  const text = "Выбери игру кнопками ниже или командами: /runner, /toprunner, /toprunner100";
   const keyboard = getGamesChoiceKeyboard();
   await bot.sendMessage(msg.chat.id, text, keyboard ? { reply_markup: keyboard } : undefined);
-});
-
-async function sendSnakeLaunch(msg) {
-  const chatId = msg.chat.id;
-  const leaderboard = await readLeaderboard();
-  const webAppUrl = snakeWebAppUrl
-    ? getSnakeUrlWithTopAndUser(leaderboard, msg.from?.id)
-    : "";
-  const keyboard = snakeWebAppUrl ? getSnakeButtonMarkupByUrl(webAppUrl) : null;
-
-  if (!snakeWebAppUrl) {
-    await bot.sendMessage(
-      chatId,
-      "Мини-игра пока не подключена. Добавь SNAKE_WEBAPP_URL (https-ссылка на игру) в .env и перезапусти бота."
-    );
-    return;
-  }
-
-  if (!/^https:\/\//i.test(snakeWebAppUrl)) {
-    await bot.sendMessage(
-      chatId,
-      "SNAKE_WEBAPP_URL должен начинаться с https://, иначе Telegram Mini App не откроется."
-    );
-    return;
-  }
-
-  await bot.sendMessage(chatId, "Открывай Snake:", { reply_markup: keyboard });
-}
-
-bot.onText(/\/snake/, async (msg) => {
-  await sendSnakeLaunch(msg);
-});
-
-bot.onText(/^Snake$/i, async (msg) => {
-  await sendSnakeLaunch(msg);
 });
 
 async function sendRunnerLaunch(msg) {
@@ -390,11 +278,6 @@ bot.onText(/^Runner$/i, async (msg) => {
   await sendRunnerLaunch(msg);
 });
 
-bot.onText(/\/top/, async (msg) => {
-  const leaderboard = await readLeaderboard();
-  await bot.sendMessage(msg.chat.id, renderLeaderboardText(leaderboard));
-});
-
 bot.onText(/\/toprunner/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 10));
@@ -427,27 +310,6 @@ bot.on("message", async (msg) => {
   if (msg.web_app_data?.data) {
     try {
       const payload = JSON.parse(msg.web_app_data.data);
-      if (payload?.type === "snake_score") {
-        const score = normalizeScore(payload.score);
-        if (score === null) {
-          await bot.sendMessage(chatId, "Некорректный счёт. Попробуй отправить результат ещё раз.");
-          return;
-        }
-
-        const leaderboard = await readLeaderboard();
-        const result = upsertBestScore(leaderboard, msg.from || {}, score);
-        await writeLeaderboard(result.leaderboard);
-
-        const recordLine = result.isNewRecord
-          ? `Новый рекорд: ${result.bestScore}.`
-          : `Твой лучший рекорд уже выше: ${result.bestScore}.`;
-        await bot.sendMessage(
-          chatId,
-          `Результат принят: ${score}\n${recordLine}\nТвоё место в таблице: #${result.rank}\nПосмотреть топ: /top`
-        );
-        return;
-      }
-
       if (payload?.type === "runner_score") {
         const score = normalizeScore(payload.score);
         if (score === null) {
