@@ -5,6 +5,7 @@ const scoreEl = document.querySelector("[data-score]");
 const statusEl = document.querySelector("[data-status]");
 const restartBtn = document.querySelector("[data-restart]");
 const jumpBtn = document.querySelector("[data-jump]");
+const sendBtn = document.querySelector("[data-send]");
 const resultEl = document.querySelector("[data-result]");
 const resultPlayerEl = document.querySelector("[data-result-player]");
 const resultScoreEl = document.querySelector("[data-result-score]");
@@ -301,8 +302,10 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "500 16px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#555";
-    ctx.fillText("Нажми Рестарт", state.width / 2, panelY + panelH - 10);
-    submitRunnerScore();
+    ctx.fillText("Нажми Рестарт", state.width / 2, panelY + panelH - 28);
+    ctx.font = "500 14px 'Trebuchet MS', sans-serif";
+    ctx.fillText("Нажми Отправить результат", state.width / 2, panelY + panelH - 8);
+    updateSendButton();
     storeBest(bestOverall);
   }
 }
@@ -345,6 +348,11 @@ function doJump() {
 function doRestart() {
   state = restartRunner(state);
   hasSubmittedRunnerScore = false;
+  if (sendBtn) {
+    sendBtn.hidden = true;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Отправить результат";
+  }
 }
 
 function renderResultPanel() {
@@ -358,6 +366,21 @@ function submitRunnerScore() {
   const payload = { type: "runner_score", score: state.score, sentAt: Date.now() };
   telegramWebApp.sendData(JSON.stringify(payload));
   hasSubmittedRunnerScore = true;
+}
+
+function updateSendButton() {
+  if (!sendBtn) return;
+  if (!telegramWebApp) {
+    sendBtn.hidden = true;
+    return;
+  }
+  if (!state.isGameOver) {
+    sendBtn.hidden = true;
+    return;
+  }
+  sendBtn.hidden = false;
+  sendBtn.disabled = hasSubmittedRunnerScore;
+  sendBtn.textContent = hasSubmittedRunnerScore ? "Результат отправлен" : "Отправить результат";
 }
 
 function getStoredBest() {
@@ -446,6 +469,12 @@ canvas.addEventListener("pointerdown", () => {
 
 jumpBtn.addEventListener("click", doJump);
 restartBtn.addEventListener("click", doRestart);
+if (sendBtn) {
+  sendBtn.addEventListener("click", () => {
+    submitRunnerScore();
+    updateSendButton();
+  });
+}
 
 draw();
 requestAnimationFrame(tick);
