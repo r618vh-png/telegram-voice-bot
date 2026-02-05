@@ -256,7 +256,7 @@ function draw() {
     ctx.fillRect(0, 0, state.width, state.height);
 
     const panelW = 290;
-    const panelH = 360;
+    const panelH = 420;
     const panelX = Math.round((state.width - panelW) / 2);
     const panelY = Math.round((state.height - panelH) / 2 - 6);
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
@@ -281,16 +281,16 @@ function draw() {
     ctx.fillText("Топ-10 игроков", state.width / 2, panelY + 178);
 
     const liveTop = initialTop;
-    ctx.font = "500 12px 'Trebuchet MS', sans-serif";
+    ctx.font = "500 11px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#333";
     ctx.textAlign = "left";
     const listX = panelX + 18;
-    const listStartY = panelY + 200;
+    const listStartY = panelY + 198;
     if (liveTop.length === 0) {
       ctx.fillText("Топ пока пуст", listX, listStartY);
     } else {
       const maxRows = 10;
-      const rowHeight = 12;
+      const rowHeight = 14;
       for (let i = 0; i < Math.min(maxRows, liveTop.length); i += 1) {
         const row = liveTop[i];
         const y = listStartY + i * rowHeight;
