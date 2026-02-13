@@ -491,11 +491,37 @@ bot.onText(/^Runner$/i, async (msg) => {
 bot.onText(/\/toprunner/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 10));
+  const offerData = getRunnerOfferData();
+  const offerText = offerData.text;
+  const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
+  if (offerData.image?.value) {
+    const photo = offerData.image.value;
+    if (offerHtml) {
+      await bot.sendPhoto(msg.chat.id, photo, { caption: offerHtml, parse_mode: "HTML" });
+    } else {
+      await bot.sendPhoto(msg.chat.id, photo);
+    }
+  } else if (offerHtml) {
+    await bot.sendMessage(msg.chat.id, offerHtml, { parse_mode: "HTML" });
+  }
 });
 
 bot.onText(/\/toprunner100/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 100));
+  const offerData = getRunnerOfferData();
+  const offerText = offerData.text;
+  const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
+  if (offerData.image?.value) {
+    const photo = offerData.image.value;
+    if (offerHtml) {
+      await bot.sendPhoto(msg.chat.id, photo, { caption: offerHtml, parse_mode: "HTML" });
+    } else {
+      await bot.sendPhoto(msg.chat.id, photo);
+    }
+  } else if (offerHtml) {
+    await bot.sendMessage(msg.chat.id, offerHtml, { parse_mode: "HTML" });
+  }
 });
 
 bot.onText(/\/resetrunner/, async (msg) => {
