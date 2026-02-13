@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 import fs, { promises as fsp } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import crypto from "node:crypto";
+import http from "node:http";
 import TelegramBot from "node-telegram-bot-api";
 import { GoogleGenAI } from "@google/genai";
 import { createEmptyLeaderboard, getTopEntries, normalizeScore, upsertBestScore } from "./snake/leaderboard.js";
@@ -16,7 +18,9 @@ const {
   GEMINI_TTS_VOICE = "Kore",
   ECONOMY_MODE = "true",
   ECONOMY_MAX_ANSWER_CHARS = "180",
-  RUNNER_WEBAPP_URL = ""
+  RUNNER_WEBAPP_URL = "",
+  RUNNER_SCORE_API_URL = "",
+  RUNNER_SCORE_PORT = "8080"
 } = process.env;
 
 if (!TELEGRAM_BOT_TOKEN || !GEMINI_API_KEY) {
@@ -34,12 +38,16 @@ const adminPath = path.join(dataDir, "admins.json");
 const economyMode = ECONOMY_MODE !== "false";
 const maxAnswerChars = Number(ECONOMY_MAX_ANSWER_CHARS) > 0 ? Number(ECONOMY_MAX_ANSWER_CHARS) : 180;
 const runnerWebAppUrl = String(RUNNER_WEBAPP_URL || "").trim();
+const runnerScoreApiUrl = String(RUNNER_SCORE_API_URL || "").trim();
+const runnerScorePort = Number(RUNNER_SCORE_PORT) || 8080;
 let adminIds = new Set([621327376]);
 const offerDrafts = new Map();
+const OFFER_SLOTS = 5;
 
 await fsp.mkdir(tmpDir, { recursive: true });
 await fsp.mkdir(dataDir, { recursive: true });
 await loadAdmins();
+startRunnerScoreServer();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isQuotaError = (error) => {
@@ -141,7 +149,8 @@ function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
   const playerBest = playerEntry ? Number(playerEntry.bestScore) : null;
   const joiner = url.includes("?") ? "&" : "?";
   const bestParam = Number.isFinite(playerBest) ? `&best=${playerBest}` : "";
-  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}&ts=${Date.now()}`;
+  const apiParam = runnerScoreApiUrl ? `&api=${encodeURIComponent(runnerScoreApiUrl)}` : "";
+  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}${apiParam}&ts=${Date.now()}`;
 }
 
 function getGamesChoiceKeyboard() {
@@ -189,21 +198,38 @@ async function saveAdmins() {
   await fsp.writeFile(adminPath, JSON.stringify({ ids }, null, 2), "utf8");
 }
 
+function normalizeOfferSlot(value) {
+  const slot = Number(value);
+  if (!Number.isFinite(slot)) return null;
+  if (slot < 1 || slot > OFFER_SLOTS) return null;
+  return slot;
+}
+
 function getRunnerOfferData() {
   try {
     const raw = fs.readFileSync(runnerOfferPath, "utf8");
     const parsed = JSON.parse(raw);
-    const text = String(parsed?.text || "").trim();
-    const image = parsed?.image && typeof parsed.image === "object" ? parsed.image : null;
-    if (image && typeof image.value !== "string") return { text, image: null };
-    return { text, image };
+    const offers = Array.isArray(parsed?.offers) ? parsed.offers : [];
+    const normalized = [];
+    for (let i = 0; i < OFFER_SLOTS; i += 1) {
+      const offer = offers[i] && typeof offers[i] === "object" ? offers[i] : {};
+      const text = String(offer.text || "").trim();
+      const image = offer.image && typeof offer.image === "object" ? offer.image : null;
+      normalized.push({
+        text,
+        image: image && typeof image.value === "string" ? image : null
+      });
+    }
+    return { offers: normalized };
   } catch {
-    return { text: "", image: null };
+    return { offers: Array.from({ length: OFFER_SLOTS }, () => ({ text: "", image: null })) };
   }
 }
 
-function getRunnerOfferText() {
-  return getRunnerOfferData().text;
+function getOfferBySlot(slot) {
+  const data = getRunnerOfferData();
+  const idx = slot - 1;
+  return data.offers[idx] || { text: "", image: null };
 }
 
 function escapeHtml(text) {
@@ -214,24 +240,46 @@ function escapeHtml(text) {
     .replaceAll("\"", "&quot;");
 }
 
-async function setRunnerOfferText(text) {
-  const current = getRunnerOfferData();
-  const payload = {
-    text: String(text || "").trim(),
-    image: current.image || null,
-    updatedAt: new Date().toISOString()
-  };
-  await fsp.writeFile(runnerOfferPath, JSON.stringify(payload, null, 2), "utf8");
+function verifyTelegramInitData(initData, botToken) {
+  if (!initData || !botToken) return { ok: false, reason: "missing_init_data" };
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  if (!hash) return { ok: false, reason: "missing_hash" };
+  params.delete("hash");
+  const pairs = [];
+  for (const [key, value] of params.entries()) {
+    pairs.push(`${key}=${value}`);
+  }
+  pairs.sort();
+  const dataCheckString = pairs.join("\n");
+  const secretKey = crypto.createHash("sha256").update(botToken).digest();
+  const computed = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  if (computed !== hash) return { ok: false, reason: "invalid_hash" };
+  return { ok: true, params };
 }
 
-async function setRunnerOfferImage(image) {
-  const current = getRunnerOfferData();
-  const payload = {
-    text: current.text || "",
-    image: image || null,
-    updatedAt: new Date().toISOString()
-  };
-  await fsp.writeFile(runnerOfferPath, JSON.stringify(payload, null, 2), "utf8");
+async function setRunnerOfferText(slot, text) {
+  const data = getRunnerOfferData();
+  const idx = slot - 1;
+  const offer = data.offers[idx] || { text: "", image: null };
+  data.offers[idx] = { ...offer, text: String(text || "").trim() };
+  await fsp.writeFile(
+    runnerOfferPath,
+    JSON.stringify({ offers: data.offers, updatedAt: new Date().toISOString() }, null, 2),
+    "utf8"
+  );
+}
+
+async function setRunnerOfferImage(slot, image) {
+  const data = getRunnerOfferData();
+  const idx = slot - 1;
+  const offer = data.offers[idx] || { text: "", image: null };
+  data.offers[idx] = { ...offer, image: image || null };
+  await fsp.writeFile(
+    runnerOfferPath,
+    JSON.stringify({ offers: data.offers, updatedAt: new Date().toISOString() }, null, 2),
+    "utf8"
+  );
 }
 
 function isAdmin(msg) {
@@ -268,6 +316,67 @@ function renderRunnerLeaderboardText(leaderboard, limit = 10) {
   }
   const lines = top.map((entry, idx) => `${idx + 1}. ${entry.displayName} (id:${entry.userId}) — ${entry.bestScore}`);
   return `Runner: топ-${Math.min(limit, top.length)}\n${lines.join("\n")}`;
+}
+
+function startRunnerScoreServer() {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || "/", "http://localhost");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    if (req.method !== "POST" || url.pathname !== "/runner-score") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "not_found" }));
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const score = normalizeScore(payload.score);
+        const initData = String(payload.initData || "");
+        if (score === null) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "invalid_score" }));
+          return;
+        }
+        const verified = verifyTelegramInitData(initData, TELEGRAM_BOT_TOKEN);
+        if (!verified.ok) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: verified.reason }));
+          return;
+        }
+        const params = verified.params;
+        const userRaw = params.get("user") || "{}";
+        let user;
+        try {
+          user = JSON.parse(userRaw);
+        } catch {
+          user = {};
+        }
+        const leaderboard = await readRunnerLeaderboard();
+        const result = upsertBestScore(leaderboard, user, score);
+        await writeRunnerLeaderboard(result.leaderboard);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, rank: result.rank, bestScore: result.bestScore }));
+      } catch (error) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "server_error" }));
+      }
+    });
+  });
+
+  server.listen(runnerScorePort, "0.0.0.0", () => {
+    console.log(`Runner score server listening on ${runnerScorePort}`);
+  });
 }
 
 async function transcribeAndAnswer(audioBuffer) {
@@ -399,28 +508,34 @@ bot.onText(/\/resetrunner/, async (msg) => {
   await bot.sendMessage(msg.chat.id, "Runner таблица рекордов очищена.");
 });
 
-bot.onText(/\/setoffer(?:\s+([\s\S]+))?/, async (msg, match) => {
+bot.onText(/\/setoffer(?:\s+(\d+))?(?:\s+([\s\S]+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к изменению предложения.");
     return;
   }
-  const text = String(match?.[1] || "").trim();
-  if (!text) {
-    await bot.sendMessage(msg.chat.id, "Использование: /setoffer Текст предложения");
+  const slot = normalizeOfferSlot(match?.[1]);
+  const text = String(match?.[2] || "").trim();
+  if (!slot || !text) {
+    await bot.sendMessage(msg.chat.id, "Использование: /setoffer 1 Текст предложения (слот 1-5)");
     return;
   }
-  await setRunnerOfferText(text);
-  await bot.sendMessage(msg.chat.id, "Текст предложения обновлён.");
+  await setRunnerOfferText(slot, text);
+  await bot.sendMessage(msg.chat.id, `Текст предложения для слота ${slot} обновлён.`);
 });
 
-bot.onText(/\/setofferwizard/, async (msg) => {
+bot.onText(/\/setofferwizard(?:\s+(\d+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к изменению предложения.");
     return;
   }
   const chatId = msg.chat.id;
-  setDraft(chatId, { step: "await_text", text: "", image: null });
-  await bot.sendMessage(chatId, "Отправь текст предложения.");
+  const slot = normalizeOfferSlot(match?.[1]);
+  if (!slot) {
+    await bot.sendMessage(chatId, "Использование: /setofferwizard 1 (слот 1-5)");
+    return;
+  }
+  setDraft(chatId, { step: "await_text", slot, text: "", image: null });
+  await bot.sendMessage(chatId, `Слот ${slot}. Отправь текст предложения.`);
 });
 
 bot.onText(/\/offer_skip/, async (msg) => {
@@ -432,41 +547,53 @@ bot.onText(/\/offer_skip/, async (msg) => {
   await sendOfferPreview(chatId, draft);
 });
 
-bot.onText(/\/setofferimg(?:\s+(https?:\/\/\S+))?/, async (msg, match) => {
+bot.onText(/\/setofferimg(?:\s+(\d+))?(?:\s+(https?:\/\/\S+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к изменению картинки.");
     return;
   }
-  const url = String(match?.[1] || "").trim();
-  if (!url) {
-    await bot.sendMessage(msg.chat.id, "Использование: /setofferimg https://example.com/image.png");
+  const slot = normalizeOfferSlot(match?.[1]);
+  const url = String(match?.[2] || "").trim();
+  if (!slot || !url) {
+    await bot.sendMessage(msg.chat.id, "Использование: /setofferimg 1 https://example.com/image.png (слот 1-5)");
     return;
   }
-  await setRunnerOfferImage({ type: "url", value: url });
-  await bot.sendMessage(msg.chat.id, "Картинка предложения обновлена (URL).");
+  await setRunnerOfferImage(slot, { type: "url", value: url });
+  await bot.sendMessage(msg.chat.id, `Картинка предложения для слота ${slot} обновлена (URL).`);
 });
 
-bot.onText(/\/clearofferimg/, async (msg) => {
+bot.onText(/\/clearofferimg(?:\s+(\d+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к изменению картинки.");
     return;
   }
-  await setRunnerOfferImage(null);
-  await bot.sendMessage(msg.chat.id, "Картинка предложения удалена.");
+  const slot = normalizeOfferSlot(match?.[1]);
+  if (!slot) {
+    await bot.sendMessage(msg.chat.id, "Использование: /clearofferimg 1 (слот 1-5)");
+    return;
+  }
+  await setRunnerOfferImage(slot, null);
+  await bot.sendMessage(msg.chat.id, `Картинка предложения для слота ${slot} удалена.`);
 });
 
 bot.on("photo", async (msg) => {
   if (!isAdmin(msg)) return;
   const caption = String(msg.caption || "").trim();
   if (!caption.startsWith("/setofferimg")) return;
+  const parts = caption.split(/\s+/);
+  const slot = normalizeOfferSlot(parts[1]);
+  if (!slot) {
+    await bot.sendMessage(msg.chat.id, "Использование: /setofferimg 1 (слот 1-5) и прикрепи фото.");
+    return;
+  }
   const sizes = Array.isArray(msg.photo) ? msg.photo : [];
   const last = sizes[sizes.length - 1];
   if (!last?.file_id) {
     await bot.sendMessage(msg.chat.id, "Не удалось получить фото. Попробуй ещё раз.");
     return;
   }
-  await setRunnerOfferImage({ type: "file_id", value: last.file_id });
-  await bot.sendMessage(msg.chat.id, "Картинка предложения обновлена.");
+  await setRunnerOfferImage(slot, { type: "file_id", value: last.file_id });
+  await bot.sendMessage(msg.chat.id, `Картинка предложения для слота ${slot} обновлена.`);
 });
 
 bot.onText(/\/addadmin(?:\s+(\d+))?/, async (msg, match) => {
@@ -503,14 +630,32 @@ bot.onText(/\/deladmin(?:\s+(\d+))?/, async (msg, match) => {
   await bot.sendMessage(msg.chat.id, `Админ удалён: ${id}`);
 });
 
+bot.onText(/\/listoffers/, async (msg) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа.");
+    return;
+  }
+  const { offers } = getRunnerOfferData();
+  const lines = offers.map((offer, idx) => {
+    const hasText = offer.text ? "текст" : "—";
+    const hasImage = offer.image?.value ? "картинка" : "—";
+    return `${idx + 1}. ${hasText}, ${hasImage}`;
+  });
+  await bot.sendMessage(msg.chat.id, `Слоты предложений:\n${lines.join("\n")}`);
+});
+
 async function sendOfferPreview(chatId, draft) {
+  const slot = draft?.slot || 1;
   const text = String(draft?.text || "").trim();
   const image = draft?.image || null;
-  if (text) {
-    await bot.sendMessage(chatId, `<b>${escapeHtml(text)}</b>`, { parse_mode: "HTML" });
-  }
+  const title = `Предложение ${slot}/5`;
   if (image?.value) {
-    await bot.sendPhoto(chatId, image.value);
+    const caption = text ? `<b>${escapeHtml(title)}</b>\n${escapeHtml(text)}` : `<b>${escapeHtml(title)}</b>`;
+    await bot.sendPhoto(chatId, image.value, { caption, parse_mode: "HTML" });
+  } else if (text) {
+    await bot.sendMessage(chatId, `<b>${escapeHtml(title)}</b>\n${escapeHtml(text)}`, { parse_mode: "HTML" });
+  } else {
+    await bot.sendMessage(chatId, `<b>${escapeHtml(title)}</b>`, { parse_mode: "HTML" });
   }
 
   const previewText = buildOfferPreviewText();
@@ -585,18 +730,18 @@ bot.on("message", async (msg) => {
         const recordLine = result.isNewRecord
           ? `Ваш новый рекорд: ${result.bestScore}.`
           : `Ваш рекорд: ${result.bestScore}.`;
-        const offerData = getRunnerOfferData();
-        const offerText = offerData.text;
-        const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
-        if (offerData.image?.value) {
-          const photo = offerData.image.value;
-          if (offerHtml) {
-            await bot.sendPhoto(chatId, photo, { caption: offerHtml, parse_mode: "HTML" });
-          } else {
-            await bot.sendPhoto(chatId, photo);
+        const { offers } = getRunnerOfferData();
+        for (let i = 0; i < offers.length; i += 1) {
+          const offer = offers[i];
+          const offerText = offer?.text || "";
+          const title = `Предложение ${i + 1}/5`;
+          const body = offerText ? `<b>${escapeHtml(title)}</b>\n${escapeHtml(offerText)}` : `<b>${escapeHtml(title)}</b>`;
+          const photo = offer?.image?.value || "";
+          if (photo) {
+            await bot.sendPhoto(chatId, photo, { caption: body, parse_mode: "HTML" });
+          } else if (offerText) {
+            await bot.sendMessage(chatId, body, { parse_mode: "HTML" });
           }
-        } else if (offerHtml) {
-          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
 
         const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\n<b>Играть еще: /runner</b>`;
@@ -621,7 +766,7 @@ bot.on("message", async (msg) => {
       draft.text = msg.text.trim();
       draft.step = "await_image";
       setDraft(chatId, draft);
-      await bot.sendMessage(chatId, "Теперь отправь картинку или напиши /offer_skip чтобы пропустить.");
+      await bot.sendMessage(chatId, `Слот ${draft.slot}. Теперь отправь картинку или напиши /offer_skip чтобы пропустить.`);
       return;
     }
     if (draft.step === "await_image" && msg.photo) {

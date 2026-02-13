@@ -28,6 +28,7 @@ const STEP_MS = 1000 / 60;
 const GIRL_RENDER_SCALE = 1;
 
 const params = new URLSearchParams(window.location.search);
+const scoreApiUrl = params.get("api") || "";
 const girlSrc = params.get("girl") || "./assets/girl.png";
 const obstacleSrc = params.get("obstacle") || "./assets/obstacle.png";
 const coinSrc = params.get("coin") || "./assets/logo.png";
@@ -362,8 +363,25 @@ function renderResultPanel() {
 }
 
 function submitRunnerScore() {
-  if (!telegramWebApp) return;
   if (hasSubmittedRunnerScore) return;
+  if (scoreApiUrl && telegramWebApp?.initData) {
+    fetch(scoreApiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ score: state.score, initData: telegramWebApp.initData })
+    })
+      .catch(() => {
+        // ignore network errors
+      })
+      .finally(() => {
+        hasSubmittedRunnerScore = true;
+        const nextBest = Math.max(Number(bestOverride) || 0, state.score);
+        bestOverride = nextBest;
+        topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
+      });
+    return;
+  }
+  if (!telegramWebApp) return;
   const payload = { type: "runner_score", score: state.score, sentAt: Date.now() };
   telegramWebApp.sendData(JSON.stringify(payload));
   hasSubmittedRunnerScore = true;
