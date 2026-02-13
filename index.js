@@ -188,15 +188,21 @@ async function saveAdmins() {
   await fsp.writeFile(adminPath, JSON.stringify({ ids }, null, 2), "utf8");
 }
 
-function getRunnerOfferText() {
+function getRunnerOfferData() {
   try {
     const raw = fs.readFileSync(runnerOfferPath, "utf8");
     const parsed = JSON.parse(raw);
     const text = String(parsed?.text || "").trim();
-    return text;
+    const image = parsed?.image && typeof parsed.image === "object" ? parsed.image : null;
+    if (image && typeof image.value !== "string") return { text, image: null };
+    return { text, image };
   } catch {
-    return "";
+    return { text: "", image: null };
   }
+}
+
+function getRunnerOfferText() {
+  return getRunnerOfferData().text;
 }
 
 function escapeHtml(text) {
@@ -208,8 +214,20 @@ function escapeHtml(text) {
 }
 
 async function setRunnerOfferText(text) {
+  const current = getRunnerOfferData();
   const payload = {
     text: String(text || "").trim(),
+    image: current.image || null,
+    updatedAt: new Date().toISOString()
+  };
+  await fsp.writeFile(runnerOfferPath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+async function setRunnerOfferImage(image) {
+  const current = getRunnerOfferData();
+  const payload = {
+    text: current.text || "",
+    image: image || null,
     updatedAt: new Date().toISOString()
   };
   await fsp.writeFile(runnerOfferPath, JSON.stringify(payload, null, 2), "utf8");
@@ -372,6 +390,43 @@ bot.onText(/\/setoffer(?:\s+([\s\S]+))?/, async (msg, match) => {
   await bot.sendMessage(msg.chat.id, "Текст предложения обновлён.");
 });
 
+bot.onText(/\/setofferimg(?:\s+(https?:\/\/\S+))?/, async (msg, match) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к изменению картинки.");
+    return;
+  }
+  const url = String(match?.[1] || "").trim();
+  if (!url) {
+    await bot.sendMessage(msg.chat.id, "Использование: /setofferimg https://example.com/image.png");
+    return;
+  }
+  await setRunnerOfferImage({ type: "url", value: url });
+  await bot.sendMessage(msg.chat.id, "Картинка предложения обновлена (URL).");
+});
+
+bot.onText(/\/clearofferimg/, async (msg) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к изменению картинки.");
+    return;
+  }
+  await setRunnerOfferImage(null);
+  await bot.sendMessage(msg.chat.id, "Картинка предложения удалена.");
+});
+
+bot.on("photo", async (msg) => {
+  if (!isAdmin(msg)) return;
+  const caption = String(msg.caption || "").trim();
+  if (!caption.startsWith("/setofferimg")) return;
+  const sizes = Array.isArray(msg.photo) ? msg.photo : [];
+  const last = sizes[sizes.length - 1];
+  if (!last?.file_id) {
+    await bot.sendMessage(msg.chat.id, "Не удалось получить фото. Попробуй ещё раз.");
+    return;
+  }
+  await setRunnerOfferImage({ type: "file_id", value: last.file_id });
+  await bot.sendMessage(msg.chat.id, "Картинка предложения обновлена.");
+});
+
 bot.onText(/\/addadmin(?:\s+(\d+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к добавлению админа.");
@@ -439,9 +494,6 @@ bot.on("message", async (msg) => {
         const result = upsertBestScore(leaderboard, msg.from || {}, score);
         await writeRunnerLeaderboard(result.leaderboard);
 
-        const updatedRunnerUrl = getRunnerUrlWithTopAndPlayer(result.leaderboard, msg.from || {});
-        const updatedRunnerMarkup = updatedRunnerUrl ? getRunnerButtonMarkupByUrl(updatedRunnerUrl) : null;
-
         const recordLine = result.isNewRecord
           ? `Ваш новый рекорд: ${result.bestScore}.`
           : `Ваш рекорд: ${result.bestScore}.`;
@@ -450,9 +502,18 @@ bot.on("message", async (msg) => {
           `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`
         );
 
-        const offerText = getRunnerOfferText();
-        if (offerText) {
-          await bot.sendMessage(chatId, `<b>${escapeHtml(offerText)}</b>`, { parse_mode: "HTML" });
+        const offerData = getRunnerOfferData();
+        const offerText = offerData.text;
+        const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
+        if (offerData.image?.value) {
+          const photo = offerData.image.value;
+          if (offerHtml) {
+            await bot.sendPhoto(chatId, photo, { caption: offerHtml, parse_mode: "HTML" });
+          } else {
+            await bot.sendPhoto(chatId, photo);
+          }
+        } else if (offerHtml) {
+          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
         return;
       }
