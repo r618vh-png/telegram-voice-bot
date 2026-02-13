@@ -585,25 +585,18 @@ bot.on("message", async (msg) => {
         const recordLine = result.isNewRecord
           ? `Ваш новый рекорд: ${result.bestScore}.`
           : `Ваш рекорд: ${result.bestScore}.`;
+        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`;
+        await bot.sendMessage(chatId, resultText);
+
         const offerData = getRunnerOfferData();
         const offerText = offerData.text;
         const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
-        let lastOfferMessageId = null;
         if (offerHtml) {
-          const sent = await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
-          lastOfferMessageId = sent?.message_id || null;
+          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
         if (offerData.image?.value) {
           const photo = offerData.image.value;
-          const sent = await bot.sendPhoto(chatId, photo);
-          lastOfferMessageId = sent?.message_id || lastOfferMessageId;
-        }
-
-        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`;
-        if (lastOfferMessageId) {
-          await bot.sendMessage(chatId, resultText, { reply_to_message_id: lastOfferMessageId });
-        } else {
-          await bot.sendMessage(chatId, resultText);
+          await bot.sendPhoto(chatId, photo);
         }
         return;
       }
