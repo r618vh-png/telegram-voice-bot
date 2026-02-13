@@ -585,9 +585,6 @@ bot.on("message", async (msg) => {
         const recordLine = result.isNewRecord
           ? `Ваш новый рекорд: ${result.bestScore}.`
           : `Ваш рекорд: ${result.bestScore}.`;
-        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`;
-        await bot.sendMessage(chatId, resultText);
-
         const offerData = getRunnerOfferData();
         const offerText = offerData.text;
         const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
@@ -601,6 +598,9 @@ bot.on("message", async (msg) => {
         } else if (offerHtml) {
           await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
+
+        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\nИграть еще: /runner`;
+        await bot.sendMessage(chatId, resultText);
         return;
       }
 
