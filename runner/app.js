@@ -64,6 +64,7 @@ const playerBest = getPlayerBestFromQuery();
 let hasSubmittedRunnerScore = false;
 let bestOverride = null;
 let topOverride = null;
+let isAwaitingSend = false;
 
 if (telegramWebApp) {
   telegramWebApp.ready();
@@ -308,8 +309,10 @@ function draw() {
     ctx.textAlign = "center";
     ctx.font = "500 16px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#555";
-    ctx.fillText("Нажми Рестарт", state.width / 2, panelY + panelH - 10);
-    submitRunnerScore();
+    ctx.fillText("Нажми пробел или тап", state.width / 2, panelY + panelH - 26);
+    ctx.font = "500 14px 'Trebuchet MS', sans-serif";
+    ctx.fillText("чтобы отправить и начать заново", state.width / 2, panelY + panelH - 8);
+    isAwaitingSend = true;
   }
 }
 
@@ -351,6 +354,7 @@ function doJump() {
 function doRestart() {
   state = restartRunner(state);
   hasSubmittedRunnerScore = false;
+  isAwaitingSend = false;
 }
 
 function renderResultPanel() {
@@ -430,14 +434,22 @@ document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (key === " " || key === "arrowup" || key === "w") {
     event.preventDefault();
-    if (state.isGameOver) doRestart();
-    else doJump();
+    if (state.isGameOver) {
+      if (isAwaitingSend) submitRunnerScore();
+      doRestart();
+    } else {
+      doJump();
+    }
   }
 });
 
 canvas.addEventListener("pointerdown", () => {
-  if (state.isGameOver) doRestart();
-  else doJump();
+  if (state.isGameOver) {
+    if (isAwaitingSend) submitRunnerScore();
+    doRestart();
+  } else {
+    doJump();
+  }
 });
 
 jumpBtn.addEventListener("click", doJump);
