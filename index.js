@@ -286,12 +286,30 @@ bot.onText(/^Runner$/i, async (msg) => {
 
 bot.onText(/\/toprunner/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
+  const runnerUrl = getRunnerUrlWithTopAndPlayer(leaderboard, msg.from || {});
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 10));
+  if (runnerUrl) {
+    await bot.sendMessage(msg.chat.id, "Открыть Runner с обновлённым топом:", {
+      reply_markup: getRunnerButtonMarkupByUrl(runnerUrl)
+    });
+  }
 });
 
 bot.onText(/\/toprunner100/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
+  const runnerUrl = getRunnerUrlWithTopAndPlayer(leaderboard, msg.from || {});
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 100));
+  if (runnerUrl) {
+    await bot.sendMessage(msg.chat.id, "Открыть Runner с обновлённым топом:", {
+      reply_markup: getRunnerButtonMarkupByUrl(runnerUrl)
+    });
+  }
+});
+
+bot.onText(/\/resetrunner/, async (msg) => {
+  const empty = createEmptyLeaderboard();
+  await writeRunnerLeaderboard(empty);
+  await bot.sendMessage(msg.chat.id, "Runner таблица рекордов очищена.");
 });
 
 bot.on("polling_error", (error) => {
