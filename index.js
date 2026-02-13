@@ -286,24 +286,12 @@ bot.onText(/^Runner$/i, async (msg) => {
 
 bot.onText(/\/toprunner/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
-  const runnerUrl = getRunnerUrlWithTopAndPlayer(leaderboard, msg.from || {});
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 10));
-  if (runnerUrl) {
-    await bot.sendMessage(msg.chat.id, "Открыть Runner с обновлённым топом:", {
-      reply_markup: getRunnerButtonMarkupByUrl(runnerUrl)
-    });
-  }
 });
 
 bot.onText(/\/toprunner100/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
-  const runnerUrl = getRunnerUrlWithTopAndPlayer(leaderboard, msg.from || {});
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 100));
-  if (runnerUrl) {
-    await bot.sendMessage(msg.chat.id, "Открыть Runner с обновлённым топом:", {
-      reply_markup: getRunnerButtonMarkupByUrl(runnerUrl)
-    });
-  }
 });
 
 bot.onText(/\/resetrunner/, async (msg) => {
@@ -349,12 +337,11 @@ bot.on("message", async (msg) => {
         const updatedRunnerMarkup = updatedRunnerUrl ? getRunnerButtonMarkupByUrl(updatedRunnerUrl) : null;
 
         const recordLine = result.isNewRecord
-          ? `Новый рекорд Runner: ${result.bestScore}.`
-          : `Твой лучший рекорд Runner уже выше: ${result.bestScore}.`;
+          ? `Ваш новый рекорд: ${result.bestScore}.`
+          : `Ваш рекорд: ${result.bestScore}.`;
         await bot.sendMessage(
           chatId,
-          `Runner результат принят: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\nОткрыть Runner с обновлённым топом:`,
-          updatedRunnerMarkup ? { reply_markup: updatedRunnerMarkup } : undefined
+          `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`
         );
         return;
       }
