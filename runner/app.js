@@ -369,21 +369,11 @@ function submitRunnerScore() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ score: state.score, initData: telegramWebApp.initData })
-    })
-      .catch(() => {
-        // ignore network errors
-      })
-      .finally(() => {
-        hasSubmittedRunnerScore = true;
-        const nextBest = Math.max(Number(bestOverride) || 0, state.score);
-        bestOverride = nextBest;
-        topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
-      });
-    return;
+    }).catch(() => {
+      // ignore network errors
+    });
   }
-  if (!telegramWebApp) return;
-  const payload = { type: "runner_score", score: state.score, sentAt: Date.now() };
-  telegramWebApp.sendData(JSON.stringify(payload));
+  // Never call Telegram.WebApp.sendData here to avoid closing the webapp.
   hasSubmittedRunnerScore = true;
   const nextBest = Math.max(Number(bestOverride) || 0, state.score);
   bestOverride = nextBest;
