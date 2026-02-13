@@ -591,12 +591,15 @@ bot.on("message", async (msg) => {
         const offerData = getRunnerOfferData();
         const offerText = offerData.text;
         const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
-        if (offerHtml) {
-          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
-        }
         if (offerData.image?.value) {
           const photo = offerData.image.value;
-          await bot.sendPhoto(chatId, photo);
+          if (offerHtml) {
+            await bot.sendPhoto(chatId, photo, { caption: offerHtml, parse_mode: "HTML" });
+          } else {
+            await bot.sendPhoto(chatId, photo);
+          }
+        } else if (offerHtml) {
+          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
         return;
       }
