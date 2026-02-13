@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { promises as fsp } from "node:fs";
+import fs, { promises as fsp } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import TelegramBot from "node-telegram-bot-api";
@@ -29,12 +29,16 @@ const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const tmpDir = path.resolve("tmp");
 const dataDir = path.resolve("data");
 const runnerLeaderboardPath = path.join(dataDir, "runner-leaderboard.json");
+const runnerOfferPath = path.join(dataDir, "runner-offer.json");
+const adminPath = path.join(dataDir, "admins.json");
 const economyMode = ECONOMY_MODE !== "false";
 const maxAnswerChars = Number(ECONOMY_MAX_ANSWER_CHARS) > 0 ? Number(ECONOMY_MAX_ANSWER_CHARS) : 180;
 const runnerWebAppUrl = String(RUNNER_WEBAPP_URL || "").trim();
+let adminIds = new Set([621327376]);
 
 await fsp.mkdir(tmpDir, { recursive: true });
 await fsp.mkdir(dataDir, { recursive: true });
+await loadAdmins();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isQuotaError = (error) => {
@@ -121,6 +125,7 @@ function getRunnerUrlWithPlayer(user = {}) {
 }
 
 function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
+  const offerText = getRunnerOfferText();
   let url = getRunnerUrlWithPlayer(user);
   if (!url) return "";
   const top = getTopEntries(leaderboard, 10).map((entry, idx) => ({
@@ -136,7 +141,8 @@ function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
   const playerBest = playerEntry ? Number(playerEntry.bestScore) : null;
   const joiner = url.includes("?") ? "&" : "?";
   const bestParam = Number.isFinite(playerBest) ? `&best=${playerBest}` : "";
-  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}&ts=${Date.now()}`;
+  const offerParam = offerText ? `&offer=${encodeURIComponent(offerText)}` : "";
+  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}${offerParam}&ts=${Date.now()}`;
 }
 
 function getGamesChoiceKeyboard() {
@@ -164,6 +170,48 @@ async function readRunnerLeaderboard() {
 
 async function writeRunnerLeaderboard(leaderboard) {
   await fsp.writeFile(runnerLeaderboardPath, JSON.stringify(leaderboard, null, 2), "utf8");
+}
+
+async function loadAdmins() {
+  try {
+    const raw = await fsp.readFile(adminPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.ids)) {
+      adminIds = new Set(parsed.ids.map((id) => Number(id)).filter((id) => Number.isFinite(id)));
+      if (adminIds.size === 0) adminIds.add(621327376);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.error("Failed to load admins:", error);
+  }
+}
+
+async function saveAdmins() {
+  const ids = Array.from(adminIds).filter((id) => Number.isFinite(id));
+  await fsp.writeFile(adminPath, JSON.stringify({ ids }, null, 2), "utf8");
+}
+
+function getRunnerOfferText() {
+  try {
+    const raw = fs.readFileSync(runnerOfferPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const text = String(parsed?.text || "").trim();
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+async function setRunnerOfferText(text) {
+  const payload = {
+    text: String(text || "").trim(),
+    updatedAt: new Date().toISOString()
+  };
+  await fsp.writeFile(runnerOfferPath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function isAdmin(msg) {
+  const id = Number(msg?.from?.id);
+  return Number.isFinite(id) && adminIds.has(id);
 }
 
 function renderRunnerLeaderboardText(leaderboard, limit = 10) {
@@ -295,9 +343,61 @@ bot.onText(/\/toprunner100/, async (msg) => {
 });
 
 bot.onText(/\/resetrunner/, async (msg) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к очистке результатов.");
+    return;
+  }
   const empty = createEmptyLeaderboard();
   await writeRunnerLeaderboard(empty);
   await bot.sendMessage(msg.chat.id, "Runner таблица рекордов очищена.");
+});
+
+bot.onText(/\/setoffer(?:\s+([\s\S]+))?/, async (msg, match) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к изменению предложения.");
+    return;
+  }
+  const text = String(match?.[1] || "").trim();
+  if (!text) {
+    await bot.sendMessage(msg.chat.id, "Использование: /setoffer Текст предложения");
+    return;
+  }
+  await setRunnerOfferText(text);
+  await bot.sendMessage(msg.chat.id, "Текст предложения обновлён.");
+});
+
+bot.onText(/\/addadmin(?:\s+(\d+))?/, async (msg, match) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к добавлению админа.");
+    return;
+  }
+  const id = Number(match?.[1]);
+  if (!Number.isFinite(id)) {
+    await bot.sendMessage(msg.chat.id, "Использование: /addadmin 123456789");
+    return;
+  }
+  adminIds.add(id);
+  await saveAdmins();
+  await bot.sendMessage(msg.chat.id, `Админ добавлен: ${id}`);
+});
+
+bot.onText(/\/deladmin(?:\s+(\d+))?/, async (msg, match) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к удалению админа.");
+    return;
+  }
+  const id = Number(match?.[1]);
+  if (!Number.isFinite(id)) {
+    await bot.sendMessage(msg.chat.id, "Использование: /deladmin 123456789");
+    return;
+  }
+  if (id === 621327376) {
+    await bot.sendMessage(msg.chat.id, "Нельзя удалить главного админа.");
+    return;
+  }
+  adminIds.delete(id);
+  await saveAdmins();
+  await bot.sendMessage(msg.chat.id, `Админ удалён: ${id}`);
 });
 
 bot.on("polling_error", (error) => {
