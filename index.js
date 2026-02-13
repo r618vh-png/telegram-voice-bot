@@ -35,6 +35,7 @@ const economyMode = ECONOMY_MODE !== "false";
 const maxAnswerChars = Number(ECONOMY_MAX_ANSWER_CHARS) > 0 ? Number(ECONOMY_MAX_ANSWER_CHARS) : 180;
 const runnerWebAppUrl = String(RUNNER_WEBAPP_URL || "").trim();
 let adminIds = new Set([621327376]);
+const offerDrafts = new Map();
 
 await fsp.mkdir(tmpDir, { recursive: true });
 await fsp.mkdir(dataDir, { recursive: true });
@@ -238,6 +239,28 @@ function isAdmin(msg) {
   return Number.isFinite(id) && adminIds.has(id);
 }
 
+function getDraft(chatId) {
+  return offerDrafts.get(chatId) || null;
+}
+
+function setDraft(chatId, draft) {
+  offerDrafts.set(chatId, draft);
+}
+
+function clearDraft(chatId) {
+  offerDrafts.delete(chatId);
+}
+
+function buildOfferPreviewText() {
+  return [
+    "Пример результата после игры:",
+    "Ваш результат: 12",
+    "Ваш новый рекорд: 12.",
+    "Твоё место в Runner: #1",
+    "Посмотреть топ: /toprunner"
+  ].join("\n");
+}
+
 function renderRunnerLeaderboardText(leaderboard, limit = 10) {
   const top = getTopEntries(leaderboard, limit);
   if (top.length === 0) {
@@ -390,6 +413,25 @@ bot.onText(/\/setoffer(?:\s+([\s\S]+))?/, async (msg, match) => {
   await bot.sendMessage(msg.chat.id, "Текст предложения обновлён.");
 });
 
+bot.onText(/\/setofferwizard/, async (msg) => {
+  if (!isAdmin(msg)) {
+    await bot.sendMessage(msg.chat.id, "Нет доступа к изменению предложения.");
+    return;
+  }
+  const chatId = msg.chat.id;
+  setDraft(chatId, { step: "await_text", text: "", image: null });
+  await bot.sendMessage(chatId, "Отправь текст предложения.");
+});
+
+bot.onText(/\/offer_skip/, async (msg) => {
+  const chatId = msg.chat.id;
+  const draft = getDraft(chatId);
+  if (!draft || draft.step !== "await_image") return;
+  draft.step = "preview";
+  setDraft(chatId, draft);
+  await sendOfferPreview(chatId, draft);
+});
+
 bot.onText(/\/setofferimg(?:\s+(https?:\/\/\S+))?/, async (msg, match) => {
   if (!isAdmin(msg)) {
     await bot.sendMessage(msg.chat.id, "Нет доступа к изменению картинки.");
@@ -461,6 +503,52 @@ bot.onText(/\/deladmin(?:\s+(\d+))?/, async (msg, match) => {
   await bot.sendMessage(msg.chat.id, `Админ удалён: ${id}`);
 });
 
+async function sendOfferPreview(chatId, draft) {
+  const text = String(draft?.text || "").trim();
+  const image = draft?.image || null;
+  if (text) {
+    await bot.sendMessage(chatId, `<b>${escapeHtml(text)}</b>`, { parse_mode: "HTML" });
+  }
+  if (image?.value) {
+    await bot.sendPhoto(chatId, image.value);
+  }
+
+  const previewText = buildOfferPreviewText();
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "Сохранить", callback_data: "offer_save" },
+        { text: "Отправить другие", callback_data: "offer_restart" }
+      ]
+    ]
+  };
+  await bot.sendMessage(chatId, previewText, { reply_markup: keyboard });
+}
+
+bot.on("callback_query", async (query) => {
+  const chatId = query.message?.chat?.id;
+  if (!chatId) return;
+  const draft = getDraft(chatId);
+  if (!draft) return;
+  if (!isAdmin({ from: query.from })) {
+    await bot.answerCallbackQuery(query.id, { text: "Нет доступа." });
+    return;
+  }
+  if (query.data === "offer_save") {
+    await setRunnerOfferText(draft.text);
+    await setRunnerOfferImage(draft.image || null);
+    clearDraft(chatId);
+    await bot.answerCallbackQuery(query.id, { text: "Сохранено." });
+    await bot.sendMessage(chatId, "Предложение сохранено.");
+    return;
+  }
+  if (query.data === "offer_restart") {
+    setDraft(chatId, { step: "await_text", text: "", image: null });
+    await bot.answerCallbackQuery(query.id, { text: "Ок." });
+    await bot.sendMessage(chatId, "Отправь новый текст предложения.");
+  }
+});
+
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error?.message || error);
 });
@@ -497,23 +585,25 @@ bot.on("message", async (msg) => {
         const recordLine = result.isNewRecord
           ? `Ваш новый рекорд: ${result.bestScore}.`
           : `Ваш рекорд: ${result.bestScore}.`;
-        await bot.sendMessage(
-          chatId,
-          `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`
-        );
-
         const offerData = getRunnerOfferData();
         const offerText = offerData.text;
         const offerHtml = offerText ? `<b>${escapeHtml(offerText)}</b>` : "";
+        let lastOfferMessageId = null;
+        if (offerHtml) {
+          const sent = await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
+          lastOfferMessageId = sent?.message_id || null;
+        }
         if (offerData.image?.value) {
           const photo = offerData.image.value;
-          if (offerHtml) {
-            await bot.sendPhoto(chatId, photo, { caption: offerHtml, parse_mode: "HTML" });
-          } else {
-            await bot.sendPhoto(chatId, photo);
-          }
-        } else if (offerHtml) {
-          await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
+          const sent = await bot.sendPhoto(chatId, photo);
+          lastOfferMessageId = sent?.message_id || lastOfferMessageId;
+        }
+
+        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`;
+        if (lastOfferMessageId) {
+          await bot.sendMessage(chatId, resultText, { reply_to_message_id: lastOfferMessageId });
+        } else {
+          await bot.sendMessage(chatId, resultText);
         }
         return;
       }
@@ -527,6 +617,32 @@ bot.on("message", async (msg) => {
       await bot.sendMessage(chatId, "Не удалось обработать результат игры.");
     }
     return;
+  }
+
+  const draft = getDraft(chatId);
+  if (draft) {
+    if (draft.step === "await_text" && msg.text) {
+      draft.text = msg.text.trim();
+      draft.step = "await_image";
+      setDraft(chatId, draft);
+      await bot.sendMessage(chatId, "Теперь отправь картинку или напиши /offer_skip чтобы пропустить.");
+      return;
+    }
+    if (draft.step === "await_image" && msg.photo) {
+      const sizes = Array.isArray(msg.photo) ? msg.photo : [];
+      const last = sizes[sizes.length - 1];
+      if (last?.file_id) {
+        draft.image = { type: "file_id", value: last.file_id };
+      }
+      draft.step = "preview";
+      setDraft(chatId, draft);
+      await sendOfferPreview(chatId, draft);
+      return;
+    }
+    if (draft.step === "await_image" && msg.text) {
+      await bot.sendMessage(chatId, "Жду картинку. Если без картинки, напиши /offer_skip.");
+      return;
+    }
   }
 
   if (msg.text) {
