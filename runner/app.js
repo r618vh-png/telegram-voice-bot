@@ -61,7 +61,6 @@ const playerName = getPlayerName();
 const initialTop = getTopFromQuery();
 const playerId = getPlayerId();
 const playerBest = getPlayerBestFromQuery();
-const offerText = getOfferFromQuery();
 let hasSubmittedRunnerScore = false;
 let bestOverride = null;
 let topOverride = null;
@@ -259,9 +258,7 @@ function draw() {
     ctx.fillRect(0, 0, state.width, state.height);
 
     const panelW = 290;
-    const offerLines = getOfferLines(offerText, panelW - 36);
-    const offerBlockHeight = offerLines.length ? 18 + offerLines.length * 14 + 6 : 0;
-    const panelH = 420 + offerBlockHeight;
+    const panelH = 420;
     const panelX = Math.round((state.width - panelW) / 2);
     const panelY = Math.round((state.height - panelH) / 2 - 6);
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
@@ -308,23 +305,6 @@ function draw() {
         ctx.fillText(line, listX, y);
       }
     }
-    const rowsCount = Math.max(1, Math.min(10, liveTop.length));
-
-    if (offerLines.length) {
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#222";
-      ctx.font = "600 14px 'Trebuchet MS', sans-serif";
-      const offerX = panelX + 18;
-      let offerY = listStartY + rowsCount * 14 + 16;
-      ctx.fillText("Предложение:", offerX, offerY);
-      ctx.font = "500 12px 'Trebuchet MS', sans-serif";
-      offerY += 16;
-      for (const line of offerLines) {
-        ctx.fillText(line, offerX, offerY);
-        offerY += 14;
-      }
-    }
-
     ctx.textAlign = "center";
     ctx.font = "500 16px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#555";
@@ -438,43 +418,6 @@ function mergeCurrentPlayerIntoTop(top, name, score, id) {
   return list
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     .slice(0, 10);
-}
-
-function getOfferFromQuery() {
-  const raw = params.get("offer");
-  if (!raw) return "";
-  return String(raw).trim();
-}
-
-function getOfferLines(text, maxWidth, maxLines = 4) {
-  const clean = String(text || "").trim();
-  if (!clean) return [];
-  const prevFont = ctx.font;
-  ctx.font = "500 12px 'Trebuchet MS', sans-serif";
-  const words = clean.split(/\s+/);
-  const lines = [];
-  let current = "";
-  let truncated = false;
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (ctx.measureText(next).width <= maxWidth) {
-      current = next;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-    }
-    if (lines.length >= maxLines) {
-      truncated = true;
-      break;
-    }
-  }
-  if (lines.length < maxLines && current) lines.push(current);
-  if (truncated) {
-    const last = lines[maxLines - 1] || "";
-    lines[maxLines - 1] = last.endsWith("...") ? last : `${last.replace(/\.*$/, "")}...`;
-  }
-  ctx.font = prevFont;
-  return lines;
 }
 
 function findBestFromTop(top, id, name, fallbackScore) {

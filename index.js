@@ -125,7 +125,6 @@ function getRunnerUrlWithPlayer(user = {}) {
 }
 
 function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
-  const offerText = getRunnerOfferText();
   let url = getRunnerUrlWithPlayer(user);
   if (!url) return "";
   const top = getTopEntries(leaderboard, 10).map((entry, idx) => ({
@@ -141,8 +140,7 @@ function getRunnerUrlWithTopAndPlayer(leaderboard, user = {}) {
   const playerBest = playerEntry ? Number(playerEntry.bestScore) : null;
   const joiner = url.includes("?") ? "&" : "?";
   const bestParam = Number.isFinite(playerBest) ? `&best=${playerBest}` : "";
-  const offerParam = offerText ? `&offer=${encodeURIComponent(offerText)}` : "";
-  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}${offerParam}&ts=${Date.now()}`;
+  return `${url}${joiner}top=${encodeURIComponent(JSON.stringify(top))}${bestParam}&ts=${Date.now()}`;
 }
 
 function getGamesChoiceKeyboard() {
@@ -199,6 +197,14 @@ function getRunnerOfferText() {
   } catch {
     return "";
   }
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;");
 }
 
 async function setRunnerOfferText(text) {
@@ -443,6 +449,11 @@ bot.on("message", async (msg) => {
           chatId,
           `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner`
         );
+
+        const offerText = getRunnerOfferText();
+        if (offerText) {
+          await bot.sendMessage(chatId, `<b>${escapeHtml(offerText)}</b>`, { parse_mode: "HTML" });
+        }
         return;
       }
 
