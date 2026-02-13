@@ -599,8 +599,8 @@ bot.on("message", async (msg) => {
           await bot.sendMessage(chatId, offerHtml, { parse_mode: "HTML" });
         }
 
-        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\nИграть еще: /runner`;
-        await bot.sendMessage(chatId, resultText);
+        const resultText = `Ваш результат: ${score}\n${recordLine}\nТвоё место в Runner: #${result.rank}\nПосмотреть топ: /toprunner\n<b>Играть еще: /runner</b>`;
+        await bot.sendMessage(chatId, resultText, { parse_mode: "HTML" });
         return;
       }
 
