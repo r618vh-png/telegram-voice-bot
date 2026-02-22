@@ -68,6 +68,8 @@ let lastSubmitError = "";
 let lastSubmitOk = false;
 let bestOverride = null;
 let topOverride = null;
+let pendingScore = null;
+let retryTimer = null;
 
 if (telegramWebApp) {
   telegramWebApp.ready();
@@ -372,6 +374,8 @@ function doRestart() {
   isSubmittingScore = false;
   lastSubmitError = "";
   lastSubmitOk = false;
+  pendingScore = null;
+  clearRetryTimer();
 }
 
 function renderResultPanel() {
@@ -385,23 +389,27 @@ function submitRunnerScore() {
     lastSubmitError = "no_api";
     return;
   }
+  pendingScore = state.score;
   isSubmittingScore = true;
   lastSubmitError = "";
   lastSubmitOk = false;
-  postScoreWithRetry(0);
+  postScoreWithRetry(0, pendingScore);
 }
 
-function postScoreWithRetry(attempt) {
+function postScoreWithRetry(attempt, scoreValue) {
+  const user = telegramWebApp?.initDataUnsafe?.user;
+  const effectiveId = Number.isFinite(playerId) && playerId ? playerId : Number(user?.id);
+  const effectiveName = playerName || (user?.username ? `@${user.username}` : "");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3500);
   fetch(scoreApiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      score: state.score,
+      score: scoreValue,
       initData: telegramWebApp.initData,
-      playerId,
-      playerName
+      playerId: effectiveId || null,
+      playerName: effectiveName || ""
     }),
     signal: controller.signal
   })
@@ -409,10 +417,13 @@ function postScoreWithRetry(attempt) {
       if (!res.ok) throw new Error(`http_${res.status}`);
       return res.json();
     })
-    .then(() => {
+    .then((data) => {
+      if (data && data.ok === false) throw new Error(data.error || "api_error");
       hasSubmittedRunnerScore = true;
       isSubmittingScore = false;
       lastSubmitOk = true;
+      pendingScore = null;
+      clearRetryTimer();
       const nextBest = Math.max(Number(bestOverride) || 0, state.score);
       bestOverride = nextBest;
       topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
@@ -420,13 +431,31 @@ function postScoreWithRetry(attempt) {
     .catch((err) => {
       clearTimeout(timeout);
       if (attempt < 2) {
-        setTimeout(() => postScoreWithRetry(attempt + 1), 600 * (attempt + 1));
+        setTimeout(() => postScoreWithRetry(attempt + 1, scoreValue), 600 * (attempt + 1));
         return;
       }
       isSubmittingScore = false;
       lastSubmitError = err?.message || "network";
       lastSubmitOk = false;
+      scheduleRetry();
     });
+}
+
+function clearRetryTimer() {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
+function scheduleRetry() {
+  if (!pendingScore || hasSubmittedRunnerScore) return;
+  if (retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (!pendingScore || hasSubmittedRunnerScore) return;
+    postScoreWithRetry(0, pendingScore);
+  }, 5000);
 }
 
 function getTopFromQuery() {
