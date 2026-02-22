@@ -65,6 +65,7 @@ const playerBest = getPlayerBestFromQuery();
 let hasSubmittedRunnerScore = false;
 let isSubmittingScore = false;
 let lastSubmitError = "";
+let lastSubmitOk = false;
 let bestOverride = null;
 let topOverride = null;
 
@@ -318,6 +319,14 @@ function draw() {
       ctx.font = "500 12px 'Trebuchet MS', sans-serif";
       ctx.fillStyle = "#a33";
       ctx.fillText("Не удалось сохранить результат", state.width / 2, panelY + panelH - 46);
+    } else if (lastSubmitOk) {
+      ctx.font = "500 12px 'Trebuchet MS', sans-serif";
+      ctx.fillStyle = "#2a7a2a";
+      ctx.fillText("Результат сохранен", state.width / 2, panelY + panelH - 46);
+    } else if (isSubmittingScore) {
+      ctx.font = "500 12px 'Trebuchet MS', sans-serif";
+      ctx.fillStyle = "#555";
+      ctx.fillText("Сохраняем результат...", state.width / 2, panelY + panelH - 46);
     }
   }
 }
@@ -362,6 +371,7 @@ function doRestart() {
   hasSubmittedRunnerScore = false;
   isSubmittingScore = false;
   lastSubmitError = "";
+  lastSubmitOk = false;
 }
 
 function renderResultPanel() {
@@ -377,6 +387,7 @@ function submitRunnerScore() {
   }
   isSubmittingScore = true;
   lastSubmitError = "";
+  lastSubmitOk = false;
   postScoreWithRetry(0);
 }
 
@@ -401,6 +412,7 @@ function postScoreWithRetry(attempt) {
     .then(() => {
       hasSubmittedRunnerScore = true;
       isSubmittingScore = false;
+      lastSubmitOk = true;
       const nextBest = Math.max(Number(bestOverride) || 0, state.score);
       bestOverride = nextBest;
       topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
@@ -413,6 +425,7 @@ function postScoreWithRetry(attempt) {
       }
       isSubmittingScore = false;
       lastSubmitError = err?.message || "network";
+      lastSubmitOk = false;
     });
 }
 
