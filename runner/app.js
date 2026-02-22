@@ -63,9 +63,10 @@ const initialTop = getTopFromQuery();
 const playerId = getPlayerId();
 const playerBest = getPlayerBestFromQuery();
 let hasSubmittedRunnerScore = false;
+let isSubmittingScore = false;
+let lastSubmitError = "";
 let bestOverride = null;
 let topOverride = null;
-let isAwaitingSend = false;
 
 if (telegramWebApp) {
   telegramWebApp.ready();
@@ -311,8 +312,13 @@ function draw() {
     ctx.fillStyle = "#555";
     ctx.fillText("Нажми пробел или тап", state.width / 2, panelY + panelH - 26);
     ctx.font = "500 14px 'Trebuchet MS', sans-serif";
-    ctx.fillText("чтобы отправить и начать заново", state.width / 2, panelY + panelH - 8);
-    isAwaitingSend = true;
+    ctx.fillText("чтобы начать заново", state.width / 2, panelY + panelH - 8);
+    submitRunnerScore();
+    if (lastSubmitError) {
+      ctx.font = "500 12px 'Trebuchet MS', sans-serif";
+      ctx.fillStyle = "#a33";
+      ctx.fillText("Не удалось сохранить результат", state.width / 2, panelY + panelH - 46);
+    }
   }
 }
 
@@ -354,7 +360,8 @@ function doJump() {
 function doRestart() {
   state = restartRunner(state);
   hasSubmittedRunnerScore = false;
-  isAwaitingSend = false;
+  isSubmittingScore = false;
+  lastSubmitError = "";
 }
 
 function renderResultPanel() {
@@ -363,21 +370,45 @@ function renderResultPanel() {
 }
 
 function submitRunnerScore() {
-  if (hasSubmittedRunnerScore) return;
-  if (scoreApiUrl && telegramWebApp?.initData) {
-    fetch(scoreApiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ score: state.score, initData: telegramWebApp.initData })
-    }).catch(() => {
-      // ignore network errors
-    });
+  if (hasSubmittedRunnerScore || isSubmittingScore) return;
+  if (!scoreApiUrl || !telegramWebApp?.initData) {
+    lastSubmitError = "no_api";
+    return;
   }
-  // Never call Telegram.WebApp.sendData here to avoid closing the webapp.
-  hasSubmittedRunnerScore = true;
-  const nextBest = Math.max(Number(bestOverride) || 0, state.score);
-  bestOverride = nextBest;
-  topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
+  isSubmittingScore = true;
+  lastSubmitError = "";
+  postScoreWithRetry(0);
+}
+
+function postScoreWithRetry(attempt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+  fetch(scoreApiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ score: state.score, initData: telegramWebApp.initData }),
+    signal: controller.signal
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error(`http_${res.status}`);
+      return res.json();
+    })
+    .then(() => {
+      hasSubmittedRunnerScore = true;
+      isSubmittingScore = false;
+      const nextBest = Math.max(Number(bestOverride) || 0, state.score);
+      bestOverride = nextBest;
+      topOverride = mergeCurrentPlayerIntoTop(initialTop, playerName, nextBest, playerId);
+    })
+    .catch((err) => {
+      clearTimeout(timeout);
+      if (attempt < 2) {
+        setTimeout(() => postScoreWithRetry(attempt + 1), 600 * (attempt + 1));
+        return;
+      }
+      isSubmittingScore = false;
+      lastSubmitError = err?.message || "network";
+    });
 }
 
 function getTopFromQuery() {
@@ -441,22 +472,14 @@ document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (key === " " || key === "arrowup" || key === "w") {
     event.preventDefault();
-    if (state.isGameOver) {
-      if (isAwaitingSend) submitRunnerScore();
-      doRestart();
-    } else {
-      doJump();
-    }
+    if (state.isGameOver) doRestart();
+    else doJump();
   }
 });
 
 canvas.addEventListener("pointerdown", () => {
-  if (state.isGameOver) {
-    if (isAwaitingSend) submitRunnerScore();
-    doRestart();
-  } else {
-    doJump();
-  }
+  if (state.isGameOver) doRestart();
+  else doJump();
 });
 
 jumpBtn.addEventListener("click", doJump);
