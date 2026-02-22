@@ -488,6 +488,16 @@ bot.onText(/^Runner$/i, async (msg) => {
   await sendRunnerLaunch(msg);
 });
 
+bot.onText(/\/runnerlink/, async (msg) => {
+  const leaderboard = await readRunnerLeaderboard();
+  const runnerUrl = getRunnerUrlWithTopAndPlayer(leaderboard, msg.from || {});
+  if (!runnerUrl) {
+    await bot.sendMessage(msg.chat.id, "Runner пока не подключен.");
+    return;
+  }
+  await bot.sendMessage(msg.chat.id, runnerUrl);
+});
+
 bot.onText(/\/toprunner/, async (msg) => {
   const leaderboard = await readRunnerLeaderboard();
   await bot.sendMessage(msg.chat.id, renderRunnerLeaderboardText(leaderboard, 10));
