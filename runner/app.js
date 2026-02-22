@@ -386,8 +386,12 @@ function renderResultPanel() {
 
 function submitRunnerScore() {
   if (hasSubmittedRunnerScore || isSubmittingScore) return;
-  if (!scoreApiUrl || !telegramWebApp?.initData) {
+  if (!scoreApiUrl) {
     lastSubmitError = "нет API";
+    return;
+  }
+  if (!telegramWebApp?.initData && !playerId) {
+    lastSubmitError = "нет Telegram";
     return;
   }
   pendingScore = state.score;
@@ -401,6 +405,7 @@ function postScoreWithRetry(attempt, scoreValue) {
   const user = telegramWebApp?.initDataUnsafe?.user;
   const effectiveId = Number.isFinite(playerId) && playerId ? playerId : Number(user?.id);
   const effectiveName = playerName || (user?.username ? `@${user.username}` : "");
+  const initData = telegramWebApp?.initData || "";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3500);
   fetch(scoreApiUrl, {
@@ -408,7 +413,7 @@ function postScoreWithRetry(attempt, scoreValue) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       score: scoreValue,
-      initData: telegramWebApp.initData,
+      initData,
       playerId: effectiveId || null,
       playerName: effectiveName || ""
     }),
