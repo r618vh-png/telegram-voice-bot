@@ -386,7 +386,12 @@ function postScoreWithRetry(attempt) {
   fetch(scoreApiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ score: state.score, initData: telegramWebApp.initData }),
+    body: JSON.stringify({
+      score: state.score,
+      initData: telegramWebApp.initData,
+      playerId,
+      playerName
+    }),
     signal: controller.signal
   })
     .then((res) => {

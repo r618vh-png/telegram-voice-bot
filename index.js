@@ -343,24 +343,33 @@ function startRunnerScoreServer() {
         const payload = JSON.parse(body || "{}");
         const score = normalizeScore(payload.score);
         const initData = String(payload.initData || "");
+        const fallbackId = Number(payload.playerId);
+        const fallbackName = String(payload.playerName || "").trim();
         if (score === null) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: "invalid_score" }));
           return;
         }
         const verified = verifyTelegramInitData(initData, TELEGRAM_BOT_TOKEN);
-        if (!verified.ok) {
+        let user = {};
+        if (verified.ok) {
+          const params = verified.params;
+          const userRaw = params.get("user") || "{}";
+          try {
+            user = JSON.parse(userRaw);
+          } catch {
+            user = {};
+          }
+        } else if (Number.isFinite(fallbackId)) {
+          user = {
+            id: fallbackId,
+            username: fallbackName.startsWith("@") ? fallbackName.slice(1) : "",
+            first_name: fallbackName && !fallbackName.startsWith("@") ? fallbackName : ""
+          };
+        } else {
           res.writeHead(401, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: verified.reason }));
           return;
-        }
-        const params = verified.params;
-        const userRaw = params.get("user") || "{}";
-        let user;
-        try {
-          user = JSON.parse(userRaw);
-        } catch {
-          user = {};
         }
         const leaderboard = await readRunnerLeaderboard();
         const result = upsertBestScore(leaderboard, user, score);
