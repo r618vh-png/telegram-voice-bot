@@ -320,7 +320,8 @@ function draw() {
     if (lastSubmitError) {
       ctx.font = "500 12px 'Trebuchet MS', sans-serif";
       ctx.fillStyle = "#a33";
-      ctx.fillText("Не удалось сохранить результат", state.width / 2, panelY + panelH - 46);
+      const msg = lastSubmitError ? `Ошибка сохранения: ${lastSubmitError}` : "Ошибка сохранения";
+      ctx.fillText(msg, state.width / 2, panelY + panelH - 46);
     } else if (lastSubmitOk) {
       ctx.font = "500 12px 'Trebuchet MS', sans-serif";
       ctx.fillStyle = "#2a7a2a";
@@ -386,7 +387,7 @@ function renderResultPanel() {
 function submitRunnerScore() {
   if (hasSubmittedRunnerScore || isSubmittingScore) return;
   if (!scoreApiUrl || !telegramWebApp?.initData) {
-    lastSubmitError = "no_api";
+    lastSubmitError = "нет API";
     return;
   }
   pendingScore = state.score;
